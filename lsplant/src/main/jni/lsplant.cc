@@ -7,6 +7,7 @@ module;
 #include <jni.h>
 #include <sys/mman.h>
 #include <sys/system_properties.h>
+#include <unistd.h>
 
 #include <array>
 #include <atomic>
@@ -59,28 +60,28 @@ inline consteval auto operator""_uarr() {
 }
 
 consteval inline auto GetTrampoline() {
-    if constexpr (kArch == Arch::kArm) {
+    if constexpr (is_arch_v<Arch::kArm>) {
         return std::make_tuple("\x00\x00\x9f\xe5\x00\xf0\x90\xe5\x78\x56\x34\x12"_uarr,
                                // NOLINTNEXTLINE
                                uint8_t{32u}, uintptr_t{8u});
     }
-    if constexpr (kArch == Arch::kArm64) {
+    if constexpr (is_arch_v<Arch::kAArch64>) {
         return std::make_tuple(
             "\x60\x00\x00\x58\x10\x00\x40\xf8\x00\x02\x1f\xd6\x78\x56\x34\x12\x78\x56\x34\x12"_uarr,
             // NOLINTNEXTLINE
             uint8_t{44u}, uintptr_t{12u});
     }
-    if constexpr (kArch == Arch::kX86) {
+    if constexpr (is_arch_v<Arch::kX86>) {
         return std::make_tuple("\xb8\x78\x56\x34\x12\xff\x70\x00\xc3"_uarr,
                                // NOLINTNEXTLINE
                                uint8_t{56u}, uintptr_t{1u});
     }
-    if constexpr (kArch == Arch::kX86_64) {
+    if constexpr (is_arch_v<Arch::kAmd64>) {
         return std::make_tuple("\x48\xbf\x78\x56\x34\x12\x78\x56\x34\x12\xff\x77\x00\xc3"_uarr,
                                // NOLINTNEXTLINE
                                uint8_t{96u}, uintptr_t{2u});
     }
-    if constexpr (kArch == Arch::kRiscv64) {
+    if constexpr (is_arch_v<Arch::kRiscv64>) {
         return std::make_tuple(
             "\x17\x05\x00\x00\x03\x35\x05\x01\x83\x3f\x05\x00\x67\x80\x0f\x00\x78\x56\x34\x12\x78\x56\x34\x12"_uarr,
             // NOLINTNEXTLINE
@@ -146,7 +147,7 @@ bool InitJNI(JNIEnv *env) {
         executable = JNI_NewGlobalRef(env, JNI_FindClass(env, "java/lang/reflect/AbstractMethod"));
     }
     if (!executable) {
-        LOGE("Failed to found Executable/AbstractMethod");
+        LOGE("Failed to find Executable/AbstractMethod");
         return false;
     }
 
@@ -441,7 +442,7 @@ std::tuple<jclass, jfieldID, jmethodID, jmethodID> BuildDex(JNIEnv *env, jobject
     if (auto path_class_loader = JNI_FindClass(env, "dalvik/system/PathClassLoader");
         java_dex_file) {
         auto my_cl = JNI_NewObject(env, path_class_loader, path_class_loader_init,
-                                   JNI_NewStringUTF(env, ""), class_loader);
+                                   JNI_NewStringUTF(env, "."), class_loader);
         target_class =
             JNI_Cast<jclass>(
                 JNI_CallObjectMethod(env, java_dex_file, load_class,
@@ -478,17 +479,17 @@ static_assert(std::atomic_uintptr_t::is_always_lock_free, "Unsupported architect
 std::atomic_uintptr_t trampoline_pool{0};
 std::atomic_flag trampoline_lock{false};
 constexpr size_t kTrampolineSize = RoundUpTo(sizeof(trampoline), kPointerSize);
-constexpr uintptr_t kAddressMask = 0xFFFU;
+const auto kPageSize = static_cast<size_t>(getpagesize());  // assume
+const auto kPageMask = static_cast<uintptr_t>(kPageSize - 1);
 
 void *GenerateTrampolineFor(art::ArtMethod *hook) {
-    static const size_t kPageSize = sysconf(_SC_PAGESIZE);  // assume
     static const size_t kTrampolineNumPerPage = kPageSize / kTrampolineSize;
     unsigned count;
     uintptr_t address;
     while (true) {
         auto tl = Trampoline{.address = trampoline_pool.fetch_add(1, std::memory_order_release)};
         count = kPageSize == 16384 ? tl.count16k : tl.count4k;
-        address = tl.address & ~kAddressMask;
+        address = tl.address & ~kPageMask;
         if (address == 0 || count >= kTrampolineNumPerPage) {
             if (trampoline_lock.test_and_set(std::memory_order_acq_rel)) {
                 trampoline_lock.wait(true, std::memory_order_acquire);
@@ -538,6 +539,8 @@ bool DoHook(ArtMethod *target, ArtMethod *hook, ArtMethod *backup) {
         // NOLINTNEXTLINE
     } else {
         LOGV("Generated trampoline %p", entrypoint);
+
+        target->SetNonIntrinsic();
 
         target->BackupTo(backup);
 
@@ -725,6 +728,8 @@ using ::lsplant::IsHooked;
         RecordHooked(target, target->GetDeclaringClass()->GetClassDef(), global_backup, backup);
         if (!is_proxy) [[likely]] {
             RecordJitMovement(target, backup);
+        } else {
+            backuped_proxy_methods_.emplace(backup);
         }
         // Always record backup as deoptimized since we dont want its entrypoint to be updated
         // by FixupStaticTrampolines on hooker class
@@ -753,6 +758,7 @@ using ::lsplant::IsHooked;
     }
     // FIXME: not atomic, but should be fine
     hooked_methods_.erase(backup);
+    backuped_proxy_methods_.erase(backup);
     hooked_classes_.erase_if(target->GetDeclaringClass()->GetClassDef(), [&target](auto &it) {
         it.second.erase(target);
         return it.second.empty();
@@ -818,9 +824,9 @@ using ::lsplant::IsHooked;
     }
     const auto constructors =
         JNI_Cast<jobjectArray>(JNI_CallObjectMethod(env, target, class_get_declared_constructors));
-    uint8_t access_flags = JNI_GetIntField(env, target, class_access_flags);
-    constexpr static uint32_t kAccFinal = 0x0010;
-    JNI_SetIntField(env, target, class_access_flags, static_cast<jint>(access_flags & ~kAccFinal));
+    auto access_flags = JNI_GetIntField(env, target, class_access_flags);
+    constexpr static jint kAccFinal = 0x0010;
+    JNI_SetIntField(env, target, class_access_flags, access_flags & ~kAccFinal);
     for (const auto &constructor : constructors) {
         auto *method = ArtMethod::FromReflectedMethod(env, constructor.get());
         if (method && !method->IsPublic() && !method->IsProtected()) method->SetProtected();

@@ -3,7 +3,7 @@
 set -xe
 export PATH="$PATH:$ANDROID_HOME/platform-tools"
 sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-cvd_args="-daemon -enable_sandbox=false -memory_mb=8192 -report_anonymous_usage_stats=n"
+cvd_args="-daemon -enable_sandbox=false -memory_mb=8192 -report_anonymous_usage_stats=n -cpus=$(nproc)"
 
 print_title() {
   echo -e "\n\033[44;39m${1}\033[0m\n"
@@ -25,15 +25,18 @@ run_cvd_bin() {
 }
 
 setup_env() {
-  curl -LO https://github.com/user-attachments/files/18728876/cuttlefish-base_1.2.0_amd64.zip
-  sudo dpkg -i ./cuttlefish-base_*_*64.zip || sudo apt-get install -f
-  rm cuttlefish-base_*_*64.zip
+  curl -LO https://github.com/topjohnwu/magisk-files/releases/download/files/cuttlefish-base_1.2.0_amd64.deb
+  sudo apt-get update
+  sudo dpkg -i ./cuttlefish-base_*_*64.deb || sudo apt-get install -f
+  rm cuttlefish-base_*_*64.deb
   echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
   sudo udevadm control --reload-rules
   sudo udevadm trigger
   sudo usermod -aG kvm,cvdnetwork,render $USER
   yes | "$sdk" --licenses > /dev/null
   "$sdk" --channel=3 platform-tools
+  adb kill-server
+  adb start-server
 }
 
 download_cf() {
@@ -41,12 +44,12 @@ download_cf() {
   local device=$2
 
   if [ -z $branch ]; then
-    branch='aosp-main'
+    branch='aosp-android-latest-release'
   fi
   if [ -z $device ]; then
-    device='aosp_cf_x86_64_phone'
+    device='aosp_cf_x86_64_only_phone'
   fi
-  local target="${device}-trunk_staging-userdebug"
+  local target="${device}-userdebug"
 
   local build_id=$(curl -sL https://ci.android.com/builds/branches/${branch}/status.json | \
     jq -r ".targets[] | select(.name == \"$target\") | .last_known_good_build")
@@ -66,7 +69,7 @@ download_cf() {
 test_main() {
   run_cvd_bin launch_cvd $cvd_args
   adb wait-for-device
-  ./gradlew connectedCheck
+  ./gradlew :test:connectedCheck
   run_cvd_bin stop_cvd || true
 }
 

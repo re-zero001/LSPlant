@@ -2,8 +2,8 @@
 
 #include <jni.h>
 
-#include <string_view>
 #include <functional>
+#include <string_view>
 
 /// \namespace lsplant
 namespace lsplant {
@@ -57,7 +57,7 @@ struct InitInfo {
     std::string_view generated_source_name = "LSP";
     /// \brief The generated field name. Must not be empty.
     std::string_view generated_field_name = "hooker";
-    /// \brief The generated class name. Must not be emtpy. If {target} is set,
+    /// \brief The generated class name. Must not be empty. If {target} is set,
     /// it will follows the name of the target.
     std::string_view generated_method_name = "{target}";
 };
@@ -111,7 +111,7 @@ struct InitInfo {
 /// call on this function with the same \p target_method does not guarantee only one will success.
 /// If you call this with different \p hooker_object on the same target_method simultaneously, the
 /// behavior is undefined.
-/// \note The behavior of getting the \ref jmethodID of the backup method is undfined.
+/// \note The behavior of getting the \ref jmethodID of the backup method is undefined.
 [[nodiscard, maybe_unused, gnu::visibility("default")]] jobject Hook(JNIEnv *env,
                                                                      jobject target_method,
                                                                      jobject hooker_object,

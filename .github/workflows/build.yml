@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-14 ]
+        os: [ ubuntu-latest ]
 
     steps:
       - name: Check out
@@ -65,99 +65,42 @@ jobs:
 
   test:
     needs: build
-    name: Test on API ${{ matrix.api-level }} ${{ matrix.arch }}
+    name: Test on API ${{ matrix.android.api }} ${{ matrix.android.arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - api-level: 21
-            target: default
-            arch: x86_64
-          - api-level: 21
-            target: default
-            arch: x86
-          - api-level: 22
-            target: default
-            arch: x86_64
-          - api-level: 22
-            target: default
-            arch: x86
-          - api-level: 23
-            target: default
-            arch: x86_64
-          - api-level: 23
-            target: default
-            arch: x86
-          - api-level: 24
-            target: default
-            arch: x86_64
-          - api-level: 24
-            target: default
-            arch: x86
-          - api-level: 25
-            target: default
-            arch: x86_64
-          - api-level: 25
-            target: default
-            arch: x86
-          - api-level: 26
-            target: default
-            arch: x86_64
-          - api-level: 26
-            target: default
-            arch: x86
-          - api-level: 27
-            target: default
-            arch: x86_64
-          - api-level: 27
-            target: default
-            arch: x86
-          - api-level: 28
-            target: default
-            arch: x86_64
-          - api-level: 28
-            target: default
-            arch: x86
-          - api-level: 29
-            target: default
-            arch: x86_64
-          - api-level: 29
-            target: default
-            arch: x86
-          - api-level: 30
-            target: default
-            arch: x86_64
-          - api-level: 30
-            target: google_apis
-            arch: x86
-          - api-level: 31
-            target: default
-            arch: x86_64
-          - api-level: 31
-            target: android-tv
-            arch: x86
-          - api-level: 32
-            target: google_apis
-            arch: x86_64
-          - api-level: 33
-            target: default
-            arch: x86_64
-          - api-level: 33
-            target: android-tv
-            arch: x86
-          - api-level: 34
-            target: default
-            arch: x86_64
-          - api-level: 34
-            target: android-tv
-            arch: x86
-          - api-level: 35
-            target: default
-            arch: x86_64
-          - api-level: 36
-            target: google_apis
-            arch: x86_64
+        android:
+          - { api: '21', target: 'default',    arch: "x86_64" }
+          - { api: '21', target: 'default',    arch: "x86"    }
+          - { api: '22', target: 'default',    arch: "x86_64" }
+          - { api: '22', target: 'default',    arch: "x86"    }
+          - { api: '23', target: 'default',    arch: "x86_64" }
+          - { api: '23', target: 'default',    arch: "x86"    }
+          - { api: '24', target: 'default',    arch: "x86_64" }
+          - { api: '24', target: 'default',    arch: "x86"    }
+          - { api: '25', target: 'default',    arch: "x86_64" }
+          - { api: '25', target: 'default',    arch: "x86"    }
+          - { api: '26', target: 'default',    arch: "x86_64" }
+          - { api: '26', target: 'default',    arch: "x86"    }
+          - { api: '27', target: 'default',    arch: "x86_64" }
+          - { api: '27', target: 'default',    arch: "x86"    }
+          - { api: '28', target: 'default',    arch: "x86_64" }
+          - { api: '28', target: 'default',    arch: "x86"    }
+          - { api: '29', target: 'default',    arch: "x86_64" }
+          - { api: '29', target: 'default',    arch: "x86"    }
+          - { api: '30', target: 'aosp_atd',   arch: "x86_64" }
+          - { api: '30', target: 'aosp_atd',   arch: "x86"    }
+          - { api: '31', target: 'aosp_atd',   arch: "x86_64" }
+          - { api: '31', target: 'android-tv', arch: "x86"    }
+          - { api: '32', target: 'aosp_atd',   arch: "x86_64" }
+          - { api: '33', target: 'aosp_atd',   arch: "x86_64" }
+          - { api: '33', target: 'android-tv', arch: "x86"    }
+          - { api: '34', target: 'aosp_atd',   arch: "x86_64" }
+          - { api: '34', target: 'android-tv', arch: "x86"    }
+          - { api: '35', target: 'aosp_atd',   arch: "x86_64" }
+          - { api: '36', target: 'default',    arch: "x86_64" }
+          - { api: 'CinnamonBun', target: 'google_apis_ps16k', arch: 'x86_64' }  # Android 17 QPR1 Beta
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -185,11 +128,11 @@ jobs:
             sudo udevadm control --reload-rules
             sudo udevadm trigger --name-match=kvm
       - name: run tests
-        uses: reactivecircus/android-emulator-runner@b683a061eaff4aac4d0b585bfd0cf714a40aee93
+        uses: reactivecircus/android-emulator-runner@dc0214ac9162729da746d9a3f1bf79bfd00fdc48
         with:
-          api-level: ${{ matrix.api-level }}
-          arch: ${{ matrix.arch }}
-          target: ${{ matrix.target }}
+          api-level: ${{ matrix.android.api }}
+          arch: ${{ matrix.android.arch }}
+          target: ${{ matrix.android.target }}
           script: |
             rm -rf $ANDROID_HOME/cmake
             ccache -o cache_dir=${{ github.workspace }}/.ccache
@@ -198,12 +141,12 @@ jobs:
             ./gradlew :test:connectedCheck
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          avd-name: ${{ matrix.api-level }}_${{ matrix.arch }}
+          avd-name: ${{ matrix.android.api }}_${{ matrix.android.arch }}
       - name: Upload outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-outputs-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.api-level }}
+          name: test-outputs-${{ matrix.android.api }}-${{ matrix.android.arch }}-${{ matrix.android.target }}
           path: |
             test/build/outputs
             !test/build/outputs/apk
@@ -217,8 +160,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - branch: "aosp-main"
-            device: "aosp_cf_x86_64_phone"
+          - branch: "aosp-android-latest-release"
+            device: "aosp_cf_x86_64_only_phone"
 
     steps:
       - name: checkout
@@ -251,7 +194,7 @@ jobs:
           ccache -o compiler_check='%compiler% -dumpmachine; %compiler% -dumpversion'
       - name: Run Cuttlefish test
         timeout-minutes: 10
-        run: su $USER -c '.github/cuttlefish.sh test'
+        run: sudo -E -u $USER .github/cuttlefish.sh test
       - name: Upload logs on error
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4

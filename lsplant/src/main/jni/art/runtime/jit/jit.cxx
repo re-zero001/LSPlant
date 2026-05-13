@@ -11,12 +11,16 @@ import hook_helper;
 
 namespace lsplant::art::jit {
 enum class CompilationKind {
-    kOsr [[maybe_unused]],
-    kBaseline [[maybe_unused]],
-    kOptimized,
+    kUnknown = -1,
 };
 
 export class Jit {
+    inline static auto kOptimized{CompilationKind::kUnknown};
+
+    inline static auto EnqueueBaselineCompilation_ =
+        "_ZN3art3jit3Jit26EnqueueBaselineCompilationEPNS_9ArtMethodEPNS_6ThreadE"_sym
+            .as<void (Jit::*)(ArtMethod *, Thread *)>;
+
     inline static auto EnqueueOptimizedCompilation_ =
         "_ZN3art3jit3Jit27EnqueueOptimizedCompilationEPNS_9ArtMethodEPNS_6ThreadE"_sym.hook->*[]
         <MemBackup auto backup>
@@ -32,7 +36,7 @@ export class Jit {
         "_ZN3art3jit3Jit14AddCompileTaskEPNS_6ThreadEPNS_9ArtMethodENS_15CompilationKindEb"_sym.hook->*[]
         <MemBackup auto backup>
         (Jit *thiz, Thread *self, ArtMethod *method, CompilationKind compilation_kind, bool precompile) static -> void {
-            if (compilation_kind == CompilationKind::kOptimized && !precompile) {
+            if (compilation_kind == kOptimized && !precompile) {
                 if (auto b = IsHooked(method); b) [[unlikely]] {
                     LOGD("Propagate compile task: %p -> %p", method, b);
                     method = b;
@@ -44,6 +48,12 @@ export class Jit {
 public:
     static bool Init(const HookHandler &handler) {
         auto sdk_int = GetAndroidApiLevel();
+
+        if (handler(EnqueueBaselineCompilation_)) [[likely]] {
+            kOptimized = static_cast<CompilationKind>(3);
+        } else {
+            kOptimized = static_cast<CompilationKind>(2);
+        }
 
         if (sdk_int <= __ANDROID_API_U__) [[likely]] {
             handler(EnqueueOptimizedCompilation_);

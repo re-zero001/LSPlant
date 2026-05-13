@@ -34,10 +34,12 @@ private:
             "art_quick_to_interpreter_bridge"_sym.as<void(void *)>;
 
     inline static auto GetOptimizedCodeFor_ =
-            "_ZN3art15instrumentationL19GetOptimizedCodeForEPNS_9ArtMethodE"_sym.as<void *(ArtMethod *)>;
+        "_ZN3art15instrumentation15Instrumentation19GetOptimizedCodeForEPNS_9ArtMethodE"_sym
+            .as<void *(ArtMethod *)>;
 
-    inline static auto GetRuntimeQuickGenericJniStub_=
-            "_ZNK3art11ClassLinker29GetRuntimeQuickGenericJniStubEv"_sym.as<void *(ClassLinker::*)()>;
+    inline static auto GetOptimizedCodeForL_ =
+        "_ZN3art15instrumentationL19GetOptimizedCodeForEPNS_9ArtMethodE"_sym
+            .as<void *(ArtMethod *)>;
 
     inline static art::ArtMethod *MayGetBackup(art::ArtMethod *method) {
         if (auto backup = IsHooked(method); backup) [[unlikely]] {
@@ -134,12 +136,95 @@ private:
         };
 
     inline static auto FixupStaticTrampolinesWithThread_ =
-        "_ZN3art11ClassLinker22FixupStaticTrampolinesEPNS_6ThreadENS_6ObjPtrINS_6mirror5ClassEEE"_sym.hook->*[]
-        <MemBackup auto backup>
-        (ClassLinker *thiz, Thread *self, ObjPtr<mirror::Class> mirror_class) static -> void {
-            backup(thiz, self, mirror_class);
-            RestoreBackup(mirror_class->GetClassDef(), self);
-        };
+        "_ZN3art11ClassLinker22FixupStaticTrampolinesEPNS_6ThreadENS_6ObjPtrINS_6mirror5ClassEEE"_sym
+            .hook
+            ->*[] consteval {
+                    if constexpr (is_arch_v<Arch::kX86>) {
+                        return []<MemBackup auto backup> [[gnu::naked]] (
+                                   ClassLinker * thiz, Thread * self,
+                                   ObjPtr<mirror::Class> mirror_class) static {
+                            asm volatile(R"(
+                                pushl   %eax
+                                pushl   %ebx
+                                pushl   %ecx
+                                pushl   %edx
+                                pushl   %esi
+                                pushl   %edi
+                                pushl   %ebp
+
+                                calll   1f
+                            1:
+                                popl    %eax
+                                addl    $_GLOBAL_OFFSET_TABLE_+[.-1b], %eax
+                                movl    lsplant_bridge_fixup_static_trampolines@GOT(%eax), %eax
+                                movl    (%eax), %eax
+
+                                movl    36(%esp), %ebx
+                                movl    %gs:0, %edx
+                                movl    28(%edx), %edx
+                                cmpl    %ebx, %edx
+                                je      .L.stdcall
+
+                                movl    32(%esp), %ebx
+                                pushl   %ebx
+                                calll   *%eax
+                                addl    $4, %esp
+                                movl    12(%esp), %ebx
+                                movl    32(%esp), %ecx
+                                jmp     .L.restore_backup
+
+                            .L.stdcall:
+                                movl    40(%esp), %ebx
+                                pushl   %ebx
+                                movl    40(%esp), %ebx
+                                pushl   %ebx
+                                movl    40(%esp), %ebx
+                                pushl   %ebx
+                                calll   *%eax
+                                addl    $12, %esp
+                                movl    36(%esp), %ebx
+                                movl    40(%esp), %ecx
+
+                            .L.restore_backup:
+                                calll   2f
+                            2:
+                                popl    %eax
+                                addl    $_GLOBAL_OFFSET_TABLE_+[.-2b], %eax
+                                movl    lsplant_bridge_restore_backup@GOT(%eax), %eax
+                                movl    (%eax), %eax
+                                pushl   %ecx
+                                pushl   %ebx
+                                calll   *%eax
+                                addl    $8, %esp
+
+                                popl    %ebp
+                                popl    %edi
+                                popl    %esi
+                                popl    %edx
+                                popl    %ecx
+                                popl    %ebx
+                                popl    %eax
+                                retl
+
+                                .bss
+                                .global lsplant_bridge_fixup_static_trampolines
+                                .hidden lsplant_bridge_fixup_static_trampolines
+                                .common lsplant_bridge_fixup_static_trampolines, 4, 4
+                                .global lsplant_bridge_restore_backup
+                                .hidden lsplant_bridge_restore_backup
+                                .common lsplant_bridge_restore_backup, 4, 4
+                                .previous
+                            )");
+                        };
+                    } else {
+                        return []<MemBackup auto backup>(
+                                   ClassLinker *thiz, Thread *self,
+                                   ObjPtr<mirror::Class> mirror_class) static -> void {
+                            backup(thiz, self, mirror_class);
+                            RestoreBackup(mirror_class->GetClassDef(), self);
+                        };
+                    }
+                }();
 
     inline static auto FixupStaticTrampolinesRaw_ =
         "_ZN3art11ClassLinker22FixupStaticTrampolinesEPNS_6mirror5ClassE"_sym.hook->*[]
@@ -166,6 +251,55 @@ private:
             RestoreBackup(nullptr, self);
         };
 
+    static void *GetOptimizedCodeFor(ArtMethod *method) {
+        if constexpr (is_arch_v<Arch::kX86>) {
+            extern void *(*get_optimized_code_for)(ArtMethod *)asm(
+                "lsplant_bridge_get_optimized_code_for");
+            get_optimized_code_for =
+                GetOptimizedCodeFor_ ? &GetOptimizedCodeFor_ : &GetOptimizedCodeForL_;
+            return [] [[gnu::naked]] (ArtMethod * method) static -> void * {
+                asm volatile(R"(
+                    pushl   %ebx
+                    pushl   %ecx
+                    pushl   %edx
+                    pushl   %esi
+                    pushl   %edi
+                    pushl   %ebp
+
+                    calll   1f
+                1:
+                    popl    %eax
+                    addl    $_GLOBAL_OFFSET_TABLE_+[.-1b], %eax
+                    movl    lsplant_bridge_get_optimized_code_for@GOT(%eax), %eax
+                    movl    (%eax), %eax
+
+                    movl    28(%esp), %ecx
+                    pushl   %ecx
+                    calll   *%eax
+                    addl    $4, %esp
+
+                    popl    %ebp
+                    popl    %edi
+                    popl    %esi
+                    popl    %edx
+                    popl    %ecx
+                    popl    %ebx
+                    retl
+
+                    .bss
+                    .global lsplant_bridge_get_optimized_code_for
+                    .hidden lsplant_bridge_get_optimized_code_for
+                    .common lsplant_bridge_get_optimized_code_for, 4, 4
+                    .previous
+                )");
+            }(method);
+        } else if (GetOptimizedCodeFor_) [[likely]] {
+            return GetOptimizedCodeFor_(method);
+        } else {
+            return GetOptimizedCodeForL_(method);
+        }
+    }
+
 public:
     static bool Init(JNIEnv *env, const HookHandler &handler) {
         int sdk_int = GetAndroidApiLevel();
@@ -174,9 +308,23 @@ public:
             handler(ShouldUseInterpreterEntrypoint_);
         }
 
-        if (!handler(FixupStaticTrampolinesWithThread_, FixupStaticTrampolines_,
-                          FixupStaticTrampolinesRaw_)) {
-            return false;
+        if constexpr (is_arch_v<Arch::kX86>) {
+            if (handler(FixupStaticTrampolinesWithThread_)) [[likely]] {
+                extern void (*fixup_static_trampolines)(
+                    ClassLinker *, Thread *,
+                    ObjPtr<mirror::Class>) asm("lsplant_bridge_fixup_static_trampolines");
+                extern void (*restore_backup)(
+                    Thread *, ObjPtr<mirror::Class>) asm("lsplant_bridge_restore_backup");
+                fixup_static_trampolines = &FixupStaticTrampolinesWithThread_;
+                restore_backup = +[](Thread *self, ObjPtr<mirror::Class> mirror_class) {
+                    RestoreBackup(mirror_class->GetClassDef(), self);
+                };
+            } else {
+                handler(FixupStaticTrampolines_, FixupStaticTrampolinesRaw_);
+            }
+        } else {
+            handler(FixupStaticTrampolinesWithThread_, FixupStaticTrampolines_,
+                    FixupStaticTrampolinesRaw_);
         }
 
         if (!handler(RegisterNativeClassLinker_, RegisterNative_, RegisterNativeFast_,
@@ -187,14 +335,14 @@ public:
         }
 
         if (sdk_int >= __ANDROID_API_R__) {
-            if constexpr (kArch != Arch::kX86 && kArch != Arch::kX86_64) {
+            if constexpr (!is_arch_v<Arch::kX86, Arch::kAmd64>) {
                 // fixup static trampoline may have been inlined
                 handler(AdjustThreadVisibilityCounter_, MarkVisiblyInitialized_);
             }
         }
 
         if (!handler(SetEntryPointsToInterpreter_)) [[likely]] {
-            if (handler(GetOptimizedCodeFor_, true)) [[likely]] {
+            if (handler(GetOptimizedCodeFor_, GetOptimizedCodeForL_, true)) [[likely]] {
                 auto obj = JNI_FindClass(env, "java/lang/Object");
                 if (!obj) {
                     return false;
@@ -208,12 +356,12 @@ public:
                 JavaDebuggableGuard guard;
                 // just in case
                 dummy->SetNonNative();
-                art_quick_to_interpreter_bridge_ = GetOptimizedCodeFor_(dummy.get());
+                art_quick_to_interpreter_bridge_ = GetOptimizedCodeFor(dummy.get());
             } else if (!handler(art_quick_to_interpreter_bridge_)) [[unlikely]] {
                 return false;
             }
+            LOGD("art_quick_to_interpreter_bridge = %p", &art_quick_to_interpreter_bridge_);
         }
-        LOGD("art_quick_to_interpreter_bridge = %p", &art_quick_to_interpreter_bridge_);
         return true;
     }
 

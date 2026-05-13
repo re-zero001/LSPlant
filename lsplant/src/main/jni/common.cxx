@@ -13,6 +13,7 @@ module;
 export module lsplant:common;
 export import jni_helper;
 export import hook_helper;
+export import type_traits;
 
 export namespace lsplant {
 
@@ -27,30 +28,6 @@ class ClassDef {};
 
 }  // namespace art
 
-enum class Arch {
-    kArm,
-    kArm64,
-    kX86,
-    kX86_64,
-    kRiscv64,
-};
-
-consteval inline Arch GetArch() {
-#if defined(__i386__)
-    return Arch::kX86;
-#elif defined(__x86_64__)
-    return Arch::kX86_64;
-#elif defined(__arm__)
-    return Arch::kArm;
-#elif defined(__aarch64__)
-    return Arch::kArm64;
-#elif defined(__riscv)
-    return Arch::kRiscv64;
-#else
-#error "unsupported architecture"
-#endif
-}
-
 template <class K, class V, class Hash = phmap::priv::hash_default_hash<K>,
           class Eq = phmap::priv::hash_default_eq<K>,
           class Alloc = phmap::priv::Allocator<phmap::priv::Pair<const K, V>>, size_t N = 4>
@@ -61,21 +38,18 @@ template <class T, class Hash = phmap::priv::hash_default_hash<T>,
           size_t N = 4>
 using SharedHashSet = phmap::parallel_flat_hash_set<T, Hash, Eq, Alloc, N, std::shared_mutex>;
 
-constexpr auto kArch = GetArch();
-
 template <typename T>
 constexpr inline auto RoundUpTo(T v, size_t size) {
     return v + size - 1 - ((v + size - 1) & (size - 1));
 }
 
 [[gnu::const]] inline auto GetAndroidApiLevel() {
-    static auto kApiLevel = []() {
+    static auto kApiLevel = [] {
         std::array<char, PROP_VALUE_MAX> prop_value;
         __system_property_get("ro.build.version.sdk", prop_value.data());
-        int base = atoi(prop_value.data());
-        __system_property_get("ro.build.version.preview_sdk", prop_value.data());
-        return base + atoi(prop_value.data());
+        return atoi(prop_value.data());
     }();
+    [[assume(kApiLevel >= __ANDROID_API__)]];
     return kApiLevel;
 }
 
@@ -125,6 +99,8 @@ SharedHashSet<art::ArtMethod *> deoptimized_methods_set_;
 
 SharedHashMap<const art::dex::ClassDef *, phmap::flat_hash_set<art::ArtMethod *>>
     deoptimized_classes_;
+
+SharedHashSet<art::ArtMethod *> backuped_proxy_methods_;
 
 std::list<std::pair<art::ArtMethod *, art::ArtMethod *>> jit_movements_;
 std::shared_mutex jit_movements_lock_;
