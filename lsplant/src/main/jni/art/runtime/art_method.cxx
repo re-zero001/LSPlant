@@ -399,6 +399,8 @@ public:
 
     static size_t GetEntryPointOffset() { return entry_point_offset; }
 
+    static size_t GetAccessFlagsOffset() { return access_flags_offset; }
+
     constexpr static uint32_t kAccPublic = 0x0001;           // class, field, method, ic
     constexpr static uint32_t kAccPrivate = 0x0002;          // field, method, ic
     constexpr static uint32_t kAccProtected = 0x0004;        // field, method, ic

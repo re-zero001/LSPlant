@@ -840,6 +840,22 @@ using ::lsplant::IsHooked;
     if (!cookie) return false;
     return DexFile::SetTrusted(env, cookie);
 }
+
+[[maybe_unused]] uintptr_t GetArtMethod(JNIEnv *env, jobject method) {
+    if (!method || !JNI_IsInstanceOf(env, method, executable)) {
+        LOGE("method is not an executable");
+        return 0;
+    }
+    return reinterpret_cast<uintptr_t>(ArtMethod::FromReflectedMethod(env, method));
+}
+
+[[maybe_unused]] size_t GetEntryPointOffset() {
+    return ArtMethod::GetEntryPointOffset();
+}
+
+[[maybe_unused]] size_t GetAccessFlagsOffset() {
+    return ArtMethod::GetAccessFlagsOffset();
+}
 }
 }  // namespace v2
 

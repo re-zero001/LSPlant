@@ -2,6 +2,8 @@
 
 #include <jni.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string_view>
 
@@ -179,5 +181,15 @@ struct InitInfo {
 /// \return Indicate whether the operation has succeed.
 [[nodiscard, maybe_unused, gnu::visibility("default")]] bool MakeDexFileTrusted(JNIEnv *env,
                                                                                 jobject cookie);
+
+/// \brief Get the ART method address behind a reflected executable.
+[[nodiscard, maybe_unused, gnu::visibility("default")]] uintptr_t GetArtMethod(JNIEnv *env,
+                                                                               jobject method);
+
+/// \brief Get the ART method quick entrypoint offset discovered during initialization.
+[[nodiscard, maybe_unused, gnu::visibility("default")]] size_t GetEntryPointOffset();
+
+/// \brief Get the ART method access flags offset discovered during initialization.
+[[nodiscard, maybe_unused, gnu::visibility("default")]] size_t GetAccessFlagsOffset();
 }  // namespace v1
 }  // namespace lsplant
